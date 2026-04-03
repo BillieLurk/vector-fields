@@ -1,4 +1,5 @@
 import type p5 from "p5";
+import { scale } from "svelte/transition";
 
 // Shared noise settings
 export const NOISE_CONFIG = {
@@ -37,11 +38,10 @@ export class VectorField {
     this.size = size;
     this.field = [];
 
-    // Precompute the entire field once with fractal noise
     for (let x = 0; x < size.x; x++) {
       let col = [];
       for (let y = 0; y < size.y; y++) {
-        col.push(fractalNoise(p, x, y));
+        col.push(p.noise(x * NOISE_CONFIG.scale, y * NOISE_CONFIG.scale, 0));
       }
       this.field.push(col);
     }
@@ -61,7 +61,19 @@ export class VectorField {
     return this.p.createVector(this.p.cos(rotation), this.p.sin(rotation));
   }
 
-  update() {}
+  update(t: number) {
+    for (let x = 0; x < this.size.x; x++) {
+      let col = [];
+      for (let y = 0; y < this.size.y; y++) {
+        col[y] = this.p.noise(
+          x * NOISE_CONFIG.scale,
+          y * NOISE_CONFIG.scale,
+          t,
+        );
+      }
+      this.field[x] = col;
+    }
+  }
 
   draw() {
     const step = 10;

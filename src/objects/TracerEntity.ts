@@ -22,45 +22,47 @@ export class TracerEntity {
   vel: p5.Vector;
   colorIndex: number;
   alive: boolean;
+  field: VectorField;
 
-  constructor(p: p5, pos: p5.Vector, millis: number) {
+  constructor(p: p5, pos: p5.Vector, millis: number, field: VectorField) {
     this.p = p;
     this.pos = pos;
     this.vel = p.createVector(0, 0);
     this.w = 1;
     this.createdAt = millis;
+    this.field = field;
     this.colorIndex = this.pickColor();
     this.alive = true;
   }
 
   // Pick a color based on fractal noise at spawn position
   pickColor(): number {
-    const noiseVal = fractalNoise(this.p, this.pos.x, this.pos.y);
+    const noiseVector = this.field.getVector(this.pos.x, this.pos.y);
     // Remap noise for better color distribution
     const remapped = this.p.constrain(
-      this.p.map(noiseVal, 0.3, 0.7, 0, 1),
+      this.p.map(noiseVector.heading(), -Math.PI, Math.PI, 0, 1),
       0,
       1,
     );
     return Math.floor(remapped * PALETTE.colors.length) % PALETTE.colors.length;
   }
 
-  update(field: VectorField, millis: number, respawn: boolean) {
+  update(millis: number, respawn: boolean) {
     if (!this.alive) return;
 
-    this.vel = field.getVector(this.pos.x, this.pos.y);
+    this.vel = this.field.getVector(this.pos.x, this.pos.y);
     this.pos.add(this.vel);
 
     const outOfBounds =
       this.pos.x < 0 ||
-      this.pos.x >= field.size.x ||
+      this.pos.x >= this.field.size.x ||
       this.pos.y < 0 ||
-      this.pos.y >= field.size.y;
+      this.pos.y >= this.field.size.y;
 
     if (outOfBounds) {
       if (respawn) {
-        this.pos.x = this.p.random(field.size.x);
-        this.pos.y = this.p.random(field.size.y);
+        this.pos.x = this.p.random(this.field.size.x);
+        this.pos.y = this.p.random(this.field.size.y);
         this.createdAt = millis;
         this.colorIndex = this.pickColor();
       } else {
