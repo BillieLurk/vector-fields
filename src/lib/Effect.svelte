@@ -12,6 +12,7 @@
     let respawn = $state(true);
     let frozen = $state(false);
     let speed = $state(1000);
+    let fps = $state(0);
 
     let resetFn: (() => void) | null = null;
     let fetchPaletteFn: (() => void) | null = null;
@@ -161,6 +162,10 @@
                 t += 1 / speed;
             }
             field.update(t);
+
+            if (p.frameCount % 10 === 0) {
+                fps = Math.round(p.frameRate());
+            }
         };
     };
 </script>
@@ -169,6 +174,7 @@
     <P5 {sketch} />
 
     <div class="flex flex-col gap-3 pt-2 min-w-[180px]">
+        <span class="text-sm text-neutral-400 font-mono">{fps} fps</span>
         <button
             class="px-3 py-1.5 rounded text-sm font-medium {frozen
                 ? 'bg-amber-500 text-neutral-900'
