@@ -1,7 +1,14 @@
 <script lang="ts">
     import P5 from "./P5.svelte";
     import { TracerEntity, PALETTE } from "../objects/TracerEntity";
-    import { VectorField } from "../objects/VectorField";
+    import {
+        VectorField,
+        type NoiseMode,
+        type CurlParams,
+        type NormalParams,
+        CURL_DEFAULTS,
+        NORMAL_DEFAULTS,
+    } from "../objects/VectorField";
     import type p5 from "p5";
     import fadeFrag from "../shaders/fade.frag?raw";
 
@@ -11,26 +18,41 @@
     const NUM_TRACERS = 8000;
 
     let respawn = $state(true);
-    let frozen = $state(true);
-    let speed = $state(1000);
+    let paused = $state(true);
+    let fadeAmount = $state(0.0);
+
     let fps = $state(0);
+    let noiseMode: NoiseMode = $state("curl");
+    let curlParams: CurlParams = $state({ ...CURL_DEFAULTS });
+    let normalParams: NormalParams = $state({ ...NORMAL_DEFAULTS });
+    let noiseParams = $derived(
+        noiseMode === "curl" ? curlParams : normalParams,
+    );
 
     let resetFn: (() => void) | null = null;
     let fetchPaletteFn: (() => void) | null = null;
-    let respawnAllFn: (() => void) | null = null;
+    let resetAllFn: (() => void) | null = null;
+    let togglePauseFn: (() => void) | null = null;
+    let rebuildFieldFn: (() => void) | null = null;
 
     const sketch = (p: p5) => {
         let field: VectorField;
         let tracers: TracerEntity[] = [];
         let fadeShader: p5.Shader;
         let trailBuffer: p5.Framebuffer;
-        const fadeAmount = 0.0;
+        // fadeAmount is now controlled by the outer state
         let t = 0;
 
         const reset = () => {
             tracers = [];
             t = 0;
-            field = new VectorField(p, p.createVector(INNER, INNER));
+            p.noiseSeed(p.random(100000));
+            field = new VectorField(
+                p,
+                p.createVector(INNER, INNER),
+                noiseMode,
+                noiseParams,
+            );
             for (let i = 0; i < NUM_TRACERS; i++) {
                 tracers.push(
                     new TracerEntity(
@@ -66,7 +88,7 @@
             }
         };
 
-        const respawnAll = () => {
+        const resetAll = () => {
             const millis = p.millis();
             for (const tracer of tracers) {
                 tracer.pos.x = p.random(0, INNER);
@@ -75,21 +97,48 @@
                 tracer.colorIndex = tracer.pickColor();
                 tracer.alive = true;
             }
+            trailBuffer.begin();
+            p.background(PALETTE.bg);
+            trailBuffer.end();
+        };
+
+        const togglePause = () => {
+            paused = !paused;
+            if (paused) {
+                p.noLoop();
+                fps = 0;
+            } else {
+                p.loop();
+            }
+        };
+
+        const rebuildField = () => {
+            field = new VectorField(
+                p,
+                p.createVector(INNER, INNER),
+                noiseMode,
+                noiseParams,
+            );
+            for (const tracer of tracers) {
+                tracer.field = field;
+            }
         };
 
         resetFn = () => reset();
         fetchPaletteFn = () => fetchPalette();
-        respawnAllFn = () => respawnAll();
+        resetAllFn = () => resetAll();
+        togglePauseFn = () => togglePause();
+        rebuildFieldFn = () => rebuildField();
 
         p.keyPressed = () => {
             if (p.key === " ") {
-                frozen = !frozen;
+                togglePause();
             }
             if (p.key === ".") {
                 fetchPalette();
             }
             if (p.key === ",") {
-                respawnAll();
+                resetAll();
             }
         };
 
@@ -106,7 +155,12 @@
 
             fadeShader = p.createFilterShader(fadeFrag);
 
-            field = new VectorField(p, p.createVector(INNER, INNER));
+            field = new VectorField(
+                p,
+                p.createVector(INNER, INNER),
+                noiseMode,
+                noiseParams,
+            );
 
             for (let i = 0; i < NUM_TRACERS; i++) {
                 tracers.push(
@@ -122,6 +176,8 @@
             trailBuffer.begin();
             p.background(PALETTE.bg);
             trailBuffer.end();
+
+            p.noLoop();
         };
 
         p.draw = () => {
@@ -156,25 +212,22 @@
             if (p.frameCount % 10 === 0) {
                 fps = Math.round(p.frameRate());
             }
-            if (frozen) return;
-            t += 1 / speed;
-            field.update(t);
         };
     };
 </script>
 
-<div class="flex gap-8 items-start">
+<div class="flex gap-8 items-start w-full">
     <P5 {sketch} />
 
-    <div class="flex flex-col gap-3 pt-2 min-w-[180px]">
+    <div class="flex flex-col gap-3 pt-2 min-w-[180px] w-full">
         <span class="text-sm text-neutral-400 font-mono">{fps} fps</span>
         <button
-            class="px-3 py-1.5 rounded text-sm font-medium {frozen
+            class="px-3 py-1.5 rounded text-sm font-medium {paused
                 ? 'bg-amber-500 text-neutral-900'
                 : 'bg-neutral-700 text-neutral-300'}"
-            onclick={() => (frozen = !frozen)}
+            onclick={() => togglePauseFn?.()}
         >
-            {frozen ? "Frozen" : "Flowing"}
+            {paused ? "Paused" : "Playing"}
             <span class="text-xs opacity-50 ml-1">[space]</span>
         </button>
 
@@ -189,9 +242,9 @@
 
         <button
             class="px-3 py-1.5 rounded bg-neutral-700 text-neutral-300 text-sm font-medium hover:bg-neutral-600"
-            onclick={() => respawnAllFn?.()}
+            onclick={() => resetAllFn?.()}
         >
-            Respawn All
+            Reset
             <span class="text-xs opacity-50 ml-1">[,]</span>
         </button>
 
@@ -211,15 +264,78 @@
         </button>
 
         <label class="flex flex-col gap-1 text-sm text-neutral-400">
-            Speed: {speed}
-            <input
-                type="range"
-                min="100"
-                max="5000"
-                step="100"
-                bind:value={speed}
-                class="accent-white"
-            />
+            <span>Fade: {fadeAmount} <span class="text-xs text-neutral-500">- trail fade out speed</span></span>
+            <input type="range" min="0.0" max="0.01" step="0.0001" bind:value={fadeAmount} class="accent-white" />
         </label>
+
+        <label class="flex flex-col gap-1 text-sm text-neutral-400">
+            Noise
+            <select
+                class="bg-neutral-700 text-neutral-300 rounded px-2 py-1 text-sm"
+                bind:value={noiseMode}
+                onchange={() => rebuildFieldFn?.()}
+            >
+                <option value="curl">Curl</option>
+                <option value="normal">Normal</option>
+            </select>
+        </label>
+
+        {#if noiseMode === "curl"}
+            <div class="flex flex-col gap-2 border-t border-neutral-700 pt-2">
+                <label class="flex flex-col gap-1 text-sm text-neutral-400">
+                    <span>Scale: {curlParams.scale} <span class="text-xs opacity-50">default: {CURL_DEFAULTS.scale}</span> <span class="text-xs text-neutral-500">- zoom level of noise</span></span>
+                    <input type="range" min="0.001" max="0.05" step="0.001" bind:value={curlParams.scale} onchange={() => rebuildFieldFn?.()} class="accent-white" />
+                </label>
+
+                <label class="flex flex-col gap-1 text-sm text-neutral-400">
+                    <span>Speed: {curlParams.speed} <span class="text-xs opacity-50">default: {CURL_DEFAULTS.speed}</span> <span class="text-xs text-neutral-500">- particle velocity</span></span>
+                    <input type="range" min="10" max="300" step="5" bind:value={curlParams.speed} onchange={() => rebuildFieldFn?.()} class="accent-white" />
+                </label>
+
+                <label class="flex flex-col gap-1 text-sm text-neutral-400">
+                    <span>Octaves: {curlParams.octaves} <span class="text-xs opacity-50">default: {CURL_DEFAULTS.octaves}</span> <span class="text-xs text-neutral-500">- layers of detail</span></span>
+                    <input type="range" min="1" max="10" step="1" bind:value={curlParams.octaves} onchange={() => rebuildFieldFn?.()} class="accent-white" />
+                </label>
+
+                <label class="flex flex-col gap-1 text-sm text-neutral-400">
+                    <span>Falloff: {curlParams.falloff} <span class="text-xs opacity-50">default: {CURL_DEFAULTS.falloff}</span> <span class="text-xs text-neutral-500">- octave influence</span></span>
+                    <input type="range" min="0.0" max="1.0" step="0.05" bind:value={curlParams.falloff} onchange={() => rebuildFieldFn?.()} class="accent-white" />
+                </label>
+
+                <label class="flex flex-col gap-1 text-sm text-neutral-400">
+                    <span>Epsilon: {curlParams.epsilon} <span class="text-xs opacity-50">default: {CURL_DEFAULTS.epsilon}</span> <span class="text-xs text-neutral-500">- curl smoothness</span></span>
+                    <input type="range" min="1" max="20" step="1" bind:value={curlParams.epsilon} onchange={() => rebuildFieldFn?.()} class="accent-white" />
+                </label>
+
+                <label class="flex flex-col gap-1 text-sm text-neutral-400">
+                    <span>Angle: {Math.round((curlParams.angle * 180) / Math.PI)}° <span class="text-xs opacity-50">default: {CURL_DEFAULTS.angle}°</span> <span class="text-xs text-neutral-500">- spiral vs flow</span></span>
+                    <input type="range" min="0" max={Math.PI * 2} step="0.05" bind:value={curlParams.angle} onchange={() => rebuildFieldFn?.()} class="accent-white" />
+                </label>
+            </div>
+        {/if}
+
+        {#if noiseMode === "normal"}
+            <div class="flex flex-col gap-2 border-t border-neutral-700 pt-2">
+                <label class="flex flex-col gap-1 text-sm text-neutral-400">
+                    <span>Scale: {normalParams.scale} <span class="text-xs opacity-50">default: {NORMAL_DEFAULTS.scale}</span> <span class="text-xs text-neutral-500">- zoom level of noise</span></span>
+                    <input type="range" min="0.001" max="0.05" step="0.001" bind:value={normalParams.scale} onchange={() => rebuildFieldFn?.()} class="accent-white" />
+                </label>
+
+                <label class="flex flex-col gap-1 text-sm text-neutral-400">
+                    <span>Rotation: {normalParams.rotation} <span class="text-xs opacity-50">default: {NORMAL_DEFAULTS.rotation}</span> <span class="text-xs text-neutral-500">- angle range multiplier</span></span>
+                    <input type="range" min="1" max="16" step="0.5" bind:value={normalParams.rotation} onchange={() => rebuildFieldFn?.()} class="accent-white" />
+                </label>
+
+                <label class="flex flex-col gap-1 text-sm text-neutral-400">
+                    <span>Octaves: {normalParams.octaves} <span class="text-xs opacity-50">default: {NORMAL_DEFAULTS.octaves}</span> <span class="text-xs text-neutral-500">- layers of detail</span></span>
+                    <input type="range" min="1" max="10" step="1" bind:value={normalParams.octaves} onchange={() => rebuildFieldFn?.()} class="accent-white" />
+                </label>
+
+                <label class="flex flex-col gap-1 text-sm text-neutral-400">
+                    <span>Falloff: {normalParams.falloff} <span class="text-xs opacity-50">default: {NORMAL_DEFAULTS.falloff}</span> <span class="text-xs text-neutral-500">- octave influence</span></span>
+                    <input type="range" min="0.0" max="1.0" step="0.05" bind:value={normalParams.falloff} onchange={() => rebuildFieldFn?.()} class="accent-white" />
+                </label>
+            </div>
+        {/if}
     </div>
 </div>

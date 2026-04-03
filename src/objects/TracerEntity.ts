@@ -47,6 +47,13 @@ export class TracerEntity {
     return Math.floor(remapped * PALETTE.colors.length) % PALETTE.colors.length;
   }
 
+  respawn(millis: number) {
+    this.pos.x = this.p.random(this.field.size.x);
+    this.pos.y = this.p.random(this.field.size.y);
+    this.createdAt = millis;
+    this.colorIndex = this.pickColor();
+  }
+
   update(millis: number, respawn: boolean) {
     if (!this.alive) return;
 
@@ -61,10 +68,7 @@ export class TracerEntity {
 
     if (outOfBounds) {
       if (respawn) {
-        this.pos.x = this.p.random(this.field.size.x);
-        this.pos.y = this.p.random(this.field.size.y);
-        this.createdAt = millis;
-        this.colorIndex = this.pickColor();
+        this.respawn(millis);
       } else {
         this.alive = false;
       }
@@ -81,6 +85,8 @@ export class TracerEntity {
     const [r, g, b] = PALETTE.colors[this.colorIndex];
     this.p.stroke(r, g, b, this.alpha);
     this.p.ellipse(this.pos.x, this.pos.y, this.w);
+    if (this.createdAt > 30000) {
+    }
   }
 
   drawTo(g: p5.Graphics) {
