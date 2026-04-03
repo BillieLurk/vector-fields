@@ -8,9 +8,10 @@
     const BORDER = 40;
     const INNER = 700;
     const CANVAS = INNER + BORDER * 2;
+    const NUM_TRACERS = 8000;
 
     let respawn = $state(true);
-    let frozen = $state(false);
+    let frozen = $state(true);
     let speed = $state(1000);
     let fps = $state(0);
 
@@ -30,14 +31,11 @@
             tracers = [];
             t = 0;
             field = new VectorField(p, p.createVector(INNER, INNER));
-            for (let i = 0; i < 5000; i++) {
+            for (let i = 0; i < NUM_TRACERS; i++) {
                 tracers.push(
                     new TracerEntity(
                         p,
-                        p.createVector(
-                            p.random(0, INNER),
-                            p.random(0, INNER),
-                        ),
+                        p.createVector(p.random(0, INNER), p.random(0, INNER)),
                         p.millis(),
                         field,
                     ),
@@ -110,14 +108,11 @@
 
             field = new VectorField(p, p.createVector(INNER, INNER));
 
-            for (let i = 0; i < 5000; i++) {
+            for (let i = 0; i < NUM_TRACERS; i++) {
                 tracers.push(
                     new TracerEntity(
                         p,
-                        p.createVector(
-                            p.random(0, INNER),
-                            p.random(0, INNER),
-                        ),
+                        p.createVector(p.random(0, INNER), p.random(0, INNER)),
                         p.millis(),
                         field,
                     ),
@@ -158,14 +153,12 @@
                 INNER,
             );
 
-            if (!frozen) {
-                t += 1 / speed;
-            }
-            field.update(t);
-
             if (p.frameCount % 10 === 0) {
                 fps = Math.round(p.frameRate());
             }
+            if (frozen) return;
+            t += 1 / speed;
+            field.update(t);
         };
     };
 </script>
