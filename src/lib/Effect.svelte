@@ -94,10 +94,7 @@
 
         const fetchPalette = async () => {
             try {
-                const res = await fetch("http://colormind.io/api/", {
-                    method: "POST",
-                    body: JSON.stringify({ model: "default" }),
-                });
+                const res = await fetch("/api/palette");
                 const data = await res.json();
                 const colors = data.result as number[][];
                 colors.sort((a, b) => brightness(a) - brightness(b));
