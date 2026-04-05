@@ -15,6 +15,7 @@
     } from "../objects/VectorField";
     import type p5 from "p5";
     import fadeFrag from "../shaders/fade.frag?raw";
+    import { Muxer, ArrayBufferTarget } from "webm-muxer";
 
     const BORDER = 40;
     const INNER = 700;
@@ -53,6 +54,11 @@
     let loadImageFn: ((file: File) => void) | null = null;
     let imageName: string | null = $state(null);
     let dragging = $state(false);
+    let recording = $state(false);
+    let muxer: Muxer<ArrayBufferTarget> | null = null;
+    let videoEncoder: VideoEncoder | null = null;
+    let recordFrame = 0;
+    let toggleRecordFn: (() => void) | null = null;
 
     const sketch = (p: p5) => {
         let field: VectorField;
@@ -179,12 +185,55 @@
             });
         };
 
+        const toggleRecord = async () => {
+            if (recording && muxer && videoEncoder) {
+                await videoEncoder.flush();
+                videoEncoder.close();
+                muxer.finalize();
+                const buf = muxer.target.buffer;
+                const blob = new Blob([buf], { type: "video/webm" });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement("a");
+                a.href = url;
+                a.download = "recording.webm";
+                a.click();
+                URL.revokeObjectURL(url);
+                muxer = null;
+                videoEncoder = null;
+                recording = false;
+            } else {
+                const canvas = document.querySelector("canvas") as HTMLCanvasElement;
+                muxer = new Muxer({
+                    target: new ArrayBufferTarget(),
+                    video: {
+                        codec: "V_VP9",
+                        width: canvas.width,
+                        height: canvas.height,
+                    },
+                });
+                videoEncoder = new VideoEncoder({
+                    output: (chunk, meta) => muxer!.addVideoChunk(chunk, meta ?? undefined),
+                    error: (e) => console.error("VideoEncoder error:", e),
+                });
+                videoEncoder.configure({
+                    codec: "vp09.00.10.08",
+                    width: canvas.width,
+                    height: canvas.height,
+                    bitrate: 8_000_000,
+                    framerate: 60,
+                });
+                recordFrame = 0;
+                recording = true;
+            }
+        };
+
         resetFn = () => reset();
         fetchPaletteFn = () => fetchPalette();
         resetAllFn = () => resetAll();
         togglePauseFn = () => togglePause();
         rebuildFieldFn = () => rebuildField();
         loadImageFn = (file: File) => loadImage(file);
+        toggleRecordFn = () => toggleRecord();
 
         p.keyPressed = () => {
             if (p.key === " ") {
@@ -274,8 +323,18 @@
                 INNER,
             );
 
-            if (p.millis() % 10 === 0) {
+            if (p.frameCount % 10 === 0) {
                 fps = Math.round(p.frameRate());
+            }
+
+            if (recording && videoEncoder) {
+                const canvas = document.querySelector("canvas") as HTMLCanvasElement;
+                const frame = new VideoFrame(canvas, {
+                    timestamp: recordFrame * (1_000_000 / 60),
+                });
+                videoEncoder.encode(frame);
+                frame.close();
+                recordFrame++;
             }
         };
     };
@@ -294,6 +353,15 @@
         >
             {paused ? "Paused" : "Playing"}
             <span class="text-xs opacity-50 ml-1">[space]</span>
+        </button>
+
+        <button
+            class="px-3 py-1.5 rounded text-sm font-medium {recording
+                ? 'bg-red-500 text-white'
+                : 'bg-neutral-700 text-neutral-300'}"
+            onclick={() => toggleRecordFn?.()}
+        >
+            {recording ? "Stop Recording" : "Record"}
         </button>
 
         <button
