@@ -1,5 +1,5 @@
 import type p5 from "p5";
-import { type VectorField, fractalNoise } from "./VectorField";
+import { type VectorField } from "./VectorField";
 
 // Color palette - bg is background color
 export const PALETTE = {
@@ -21,18 +21,34 @@ export class TracerEntity {
   pos: p5.Vector;
   vel: p5.Vector;
   colorIndex: number;
+  imageColor: [number, number, number] | null = null;
   alive: boolean;
   field: VectorField;
+  lifespanOffset: number = 0;
 
-  constructor(p: p5, pos: p5.Vector, millis: number, field: VectorField) {
+  constructor(p: p5, pos: p5.Vector, millis: number, field: VectorField, lifespan: number = 30000) {
     this.p = p;
     this.pos = pos;
     this.vel = p.createVector(0, 0);
     this.w = 1;
     this.createdAt = millis;
     this.field = field;
+    if (field.imagePixels) {
+      this.spawnOnImage(millis);
+    }
     this.colorIndex = this.pickColor();
     this.alive = true;
+    this.lifespanOffset = p.random(-lifespan / 2, lifespan / 2);
+  }
+
+  private spawnOnImage(millis: number) {
+    const pos = this.field.getRandomOpaquePos();
+    if (pos) {
+      this.pos.x = pos[0];
+      this.pos.y = pos[1];
+    }
+    this.createdAt = millis;
+    this.imageColor = this.field.getImageColor(this.pos.x, this.pos.y);
   }
 
   // Pick a color based on fractal noise at spawn position
@@ -47,14 +63,20 @@ export class TracerEntity {
     return Math.floor(remapped * PALETTE.colors.length) % PALETTE.colors.length;
   }
 
-  respawn(millis: number) {
-    this.pos.x = this.p.random(this.field.size.x);
-    this.pos.y = this.p.random(this.field.size.y);
-    this.createdAt = millis;
+  respawn(millis: number, lifespan: number = 30000) {
+    if (this.field.imagePixels) {
+      this.spawnOnImage(millis);
+    } else {
+      this.pos.x = this.p.random(this.field.size.x);
+      this.pos.y = this.p.random(this.field.size.y);
+      this.createdAt = millis;
+    }
+    this.alpha = 0;
+    this.lifespanOffset = this.p.random(-lifespan / 2, lifespan / 2);
     this.colorIndex = this.pickColor();
   }
 
-  update(millis: number, respawn: boolean) {
+  update(millis: number, respawn: boolean, lifespan: number, fadeInMs: number, maxAlpha: number) {
     if (!this.alive) return;
 
     this.vel = this.field.getVector(this.pos.x, this.pos.y);
@@ -68,25 +90,37 @@ export class TracerEntity {
 
     if (outOfBounds) {
       if (respawn) {
-        this.respawn(millis);
+        this.respawn(millis, lifespan);
       } else {
         this.alive = false;
       }
     }
 
-    // Calculate alpha after respawn check so new tracers start at 0
-    let lifeTime = millis - this.createdAt;
-    const maxAlpha = 20;
-    this.alpha = Math.min(maxAlpha, maxAlpha * (lifeTime / 3000));
+    const ageMs = millis - this.createdAt;
+    const totalLife = lifespan + this.lifespanOffset;
+    const timeLeft = this.createdAt + totalLife - millis;
+    const fadeIn = Math.min(1, ageMs / fadeInMs);
+    const fadeOut = Math.min(1, timeLeft / fadeInMs);
+    this.alpha = maxAlpha * Math.min(fadeIn, fadeOut);
+    if (timeLeft <= 0) {
+      if (respawn) {
+        this.respawn(millis, lifespan);
+      } else {
+        this.alive = false;
+      }
+    }
   }
 
   draw() {
     if (!this.alive || this.createdAt < 1) return;
-    const [r, g, b] = PALETTE.colors[this.colorIndex];
-    this.p.stroke(r, g, b, this.alpha);
-    this.p.ellipse(this.pos.x, this.pos.y, this.w);
-    if (this.createdAt > 30000) {
+    if (this.imageColor) {
+      const [r, g, b] = this.imageColor;
+      this.p.stroke(r, g, b, this.alpha);
+    } else {
+      const [r, g, b] = PALETTE.colors[this.colorIndex];
+      this.p.stroke(r, g, b, this.alpha);
     }
+    this.p.ellipse(this.pos.x, this.pos.y, this.w);
   }
 
   drawTo(g: p5.Graphics) {
